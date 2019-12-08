@@ -7,66 +7,94 @@ typedef struct _{
     t_object s_obj;
     t_buffer_ref *l_buffer_reference;
     t_buffer_obj *buffer;
-}t_start;
-static t_class *s_start_class; // global pointer to our class definition that is setup in ext_main()
+    void *outlet1;
+    void *outlet2;
+    void *outlet3;
+    void *outlet4;
+}t_getPeak;
+static t_class *s_getPeak_class; // global pointer to our class definition that is setup in ext_main()
 
-void *start_new();
-void start_list(t_start *x, t_symbol *s, long argc, t_atom *argv);
+void *getPeak_new();
+void getPeak_list(t_getPeak *x, t_symbol *s, long argc, t_atom *argv);
 t_symbol w_name;
 t_atom_long buffer_len;
-float *w_header;
-float *w_header_init;
-t_atom_long w_header_count;
-void start_bang(t_start *x);
+float *header;
+void getPeak_bang(t_getPeak *x);
+void getPeak_set(t_getPeak *x, t_symbol *s, long argc, t_atom *argv);
 
 
 void ext_main(void *r)
 {
     t_class *c;
-    c = class_new("start", (method)start_new, (method)NULL, sizeof(t_start), 0L, 0);
-    class_addmethod(c, (method)start_list, "list", A_GIMME, 0); //list
-    class_addmethod(c, (method)start_bang, "bang", 0); //bang
+    c = class_new("getPeak", (method)getPeak_new, (method)NULL, sizeof(t_getPeak), 0L, 0);
+    class_addmethod(c, (method)getPeak_bang, "bang", 0); //bang
+    class_addmethod(c, (method)getPeak_set, "set", A_GIMME, 0);
 
     class_register(CLASS_BOX, c);
-    s_start_class = c;
+    s_getPeak_class = c;
 }
 
-void start_bang(t_start *x){
-    w_name.s_name = "ring";
-    x->l_buffer_reference = buffer_ref_new((t_object *)x, &w_name);
-    x->buffer = buffer_ref_getobject(x->l_buffer_reference);
-    buffer_len = buffer_getframecount(x->buffer);
-    w_header = buffer_locksamples(x->buffer);
-    w_header_init = buffer_locksamples(x->buffer);
-    w_header_count = 0;
-    post("Total ring sample: %d", buffer_len);
-}
-
-void *start_new()
+void *getPeak_new()
 {
-    t_start *x = (t_start *)object_alloc(s_start_class);
+    t_getPeak *x = (t_getPeak *)object_alloc(s_getPeak_class);
+    x->outlet4 = floatout((t_object *)x);
+    x->outlet3 = intout((t_object *)x);
+    x->outlet2 = floatout((t_object *)x);
+    x->outlet1 = intout((t_object *)x);
     return x;
 }
 
-void start_list(t_start *x, t_symbol *s, long argc, t_atom *argv){
-    t_atom *ap;
-    float samp;
-    ap = argv;
-    t_atom_long list_len = argc;
+void getPeak_set(t_getPeak *x, t_symbol *s, long argc, t_atom *argv)
+{
+    //post("%s", argv->a_w.w_sym->s_name);
+    w_name.s_name = argv->a_w.w_sym->s_name;
+    x->l_buffer_reference = buffer_ref_new((t_object *)x, &w_name);
+    x->buffer = buffer_ref_getobject(x->l_buffer_reference);
+    buffer_len = buffer_getframecount(x->buffer);
     
-    // loop buffer writing.
-    if(w_header_count + list_len > buffer_len){
-        post("Loop buffer");
-        w_header = w_header_init;
-        w_header_count = 0;
+    post("Buffer: %s is %d samples", w_name.s_name, buffer_len);
+}
+
+void getPeak_bang(t_getPeak *x){
+    header = buffer_locksamples(x->buffer);
+    int idx_arr[buffer_len];
+    for(int i = 0; i < buffer_len; i++){
+        idx_arr[i] = i;
+    }
+    int tmp_i;
+    float tmp;
+    for(int p = 0; p < buffer_len; p++){
+        for(int q = p + 1; q < buffer_len; q++){
+            if(header[p] < header[q]){
+                ////
+                tmp = header[p];
+                tmp_i = idx_arr[p];
+                ///
+                header[p] = header[q];
+                idx_arr[p] = idx_arr[q];
+                ///
+                header[q] = tmp;
+                idx_arr[q] = tmp_i;
+                ///
+            }
+        }
     }
 
-    int i;
-    for (i = 0; i < list_len; i++, ap++, w_header++){
-        samp = ap->a_w.w_float;
-        *w_header = samp;
+    //check in log
+//    for (int i=0; i<buffer_len; i++){
+//        post("%d => %f", idx_arr[i], header[i]);
+//    }
+    if(idx_arr[0] < idx_arr[1]){
+        outlet_int(x->outlet1, idx_arr[0]);
+        outlet_float(x->outlet2, header[0]);
+        outlet_int(x->outlet3, idx_arr[1]);
+        outlet_float(x->outlet4, header[1]);
+    }else{
+        outlet_int(x->outlet1, idx_arr[1]);
+        outlet_float(x->outlet2, header[1]);
+        outlet_int(x->outlet3, idx_arr[0]);
+        outlet_float(x->outlet4, header[0]);
     }
-    buffer_unlocksamples(x->buffer);
-    w_header_count += list_len;
-    post("w_header_count %d / %d", w_header_count, buffer_len);
+
+    
 }
