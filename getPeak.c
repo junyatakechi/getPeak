@@ -1,24 +1,23 @@
 #include "ext.h"							// standard Max include, always required
 #include "ext_obex.h"						// required for new style Max object
 #include "ext_buffer.h"
-#include "buffer.h"
 
 typedef struct _{
     t_object s_obj;
     t_buffer_ref *l_buffer_reference;
     t_buffer_obj *buffer;
+    t_symbol w_name;
+    t_atom_long buffer_len;
+    float *header;
     void *outlet1;
     void *outlet2;
     void *outlet3;
     void *outlet4;
 }t_getPeak;
-static t_class *s_getPeak_class; // global pointer to our class definition that is setup in ext_main()
 
+static t_class *s_getPeak_class; // global pointer to our class definition that is setup in ext_main()
 void *getPeak_new();
 void getPeak_list(t_getPeak *x, t_symbol *s, long argc, t_atom *argv);
-t_symbol w_name;
-t_atom_long buffer_len;
-float *header;
 void getPeak_bang(t_getPeak *x);
 void getPeak_set(t_getPeak *x, t_symbol *s, long argc, t_atom *argv);
 
@@ -47,54 +46,55 @@ void *getPeak_new()
 void getPeak_set(t_getPeak *x, t_symbol *s, long argc, t_atom *argv)
 {
     //post("%s", argv->a_w.w_sym->s_name);
-    w_name.s_name = argv->a_w.w_sym->s_name;
-    x->l_buffer_reference = buffer_ref_new((t_object *)x, &w_name);
+    x->w_name.s_name = argv->a_w.w_sym->s_name;
+    x->l_buffer_reference = buffer_ref_new((t_object *)x, &x->w_name);
     x->buffer = buffer_ref_getobject(x->l_buffer_reference);
-    buffer_len = buffer_getframecount(x->buffer);
+    x->buffer_len = buffer_getframecount(x->buffer);
     
-    post("Buffer: %s is %d samples", w_name.s_name, buffer_len);
+    post("Buffer: %s is %d samples", x->w_name.s_name, x->buffer_len);
 }
 
 void getPeak_bang(t_getPeak *x){
-    header = buffer_locksamples(x->buffer);
-    int idx_arr[buffer_len];
-    for(int i = 0; i < buffer_len; i++){
-        idx_arr[i] = i;
-    }
-    int tmp_i;
-    float tmp;
-    for(int p = 0; p < buffer_len; p++){
-        for(int q = p + 1; q < buffer_len; q++){
-            if(header[p] < header[q]){
-                ////
-                tmp = header[p];
-                tmp_i = idx_arr[p];
-                ///
-                header[p] = header[q];
-                idx_arr[p] = idx_arr[q];
-                ///
-                header[q] = tmp;
-                idx_arr[q] = tmp_i;
-                ///
+    x->header = buffer_locksamples(x->buffer);
+    unsigned long range = 0; // needs three points
+    float n0 = 0;
+    float n1 = 0;
+    float n2 = 0;
+    unsigned long bin1 = 0;
+    unsigned int flag_peak1 = 0;
+    unsigned int flag_peak2 = 0;
+    
+    for(unsigned long i = 0; i < x->buffer_len / 2; i++, x->header++){
+        if(range == 0){
+            n0 = *x->header;
+        }else if(range == 1){
+            n1 = *x->header;
+            bin1 = i;
+        }else{
+            n2 = *x->header;
+        }
+        
+        if(n1 > n0 && n1 > n2){ // output conditions
+            if(flag_peak1 == 0){
+                outlet_int(x->outlet1, bin1);
+                outlet_float(x->outlet2, n1);
+                flag_peak1 = 1;
+            }else if(flag_peak2 == 0){
+                outlet_int(x->outlet3, bin1);
+                outlet_float(x->outlet4, n1);
+                flag_peak2 = 1;
+            }else{
+                break;
             }
         }
-    }
+        
+        range += 1;
+        if(range > 2){
+            range = 0;
+        }
+        
 
-    //check in log
-//    for (int i=0; i<buffer_len; i++){
-//        post("%d => %f", idx_arr[i], header[i]);
-//    }
-    if(idx_arr[0] < idx_arr[1]){
-        outlet_int(x->outlet1, idx_arr[0]);
-        outlet_float(x->outlet2, header[0]);
-        outlet_int(x->outlet3, idx_arr[1]);
-        outlet_float(x->outlet4, header[1]);
-    }else{
-        outlet_int(x->outlet1, idx_arr[1]);
-        outlet_float(x->outlet2, header[1]);
-        outlet_int(x->outlet3, idx_arr[0]);
-        outlet_float(x->outlet4, header[0]);
     }
-
+    buffer_unlocksamples(x->buffer);
     
 }
